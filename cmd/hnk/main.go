@@ -15,8 +15,9 @@ import (
 
 func main() {
 	app := &cli.Command{
-		Name:  "hnk",
-		Usage: "Semantic git diff viewer - groups related hunks with explanations",
+		Name:      "hnk",
+		Usage:     "Semantic git diff viewer - groups related hunks with explanations",
+		ArgsUsage: "[commit] [-- paths...]",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "staged",
@@ -78,13 +79,26 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	var diffText string
 	var err error
 
-	paths := cmd.Args().Slice()
+	args := cmd.Args().Slice()
+	var commit string
+	var paths []string
+
+	if len(args) > 0 {
+		if repo.IsValidRef(ctx, args[0]) {
+			commit = args[0]
+			paths = args[1:]
+		} else {
+			paths = args
+		}
+	}
 
 	fromRef := cmd.String("from")
 	toRef := cmd.String("to")
 	ref := cmd.String("ref")
 
 	switch {
+	case commit != "":
+		diffText, err = repo.GetCommitDiff(ctx, commit, paths...)
 	case fromRef != "" && toRef != "":
 		diffText, err = repo.GetDiffBetweenRefs(ctx, fromRef, toRef, paths...)
 	case ref != "":

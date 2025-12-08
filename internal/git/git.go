@@ -88,3 +88,17 @@ func (r *Repository) IsRepo() bool {
 	_, err := r.execGit(ctx, "rev-parse", "--git-dir")
 	return err == nil
 }
+
+func (r *Repository) GetCommitDiff(ctx context.Context, commit string, paths ...string) (string, error) {
+	args := []string{"show", "--no-color", "-U3", "--format=", commit}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		args = append(args, paths...)
+	}
+	return r.execGit(ctx, args...)
+}
+
+func (r *Repository) IsValidRef(ctx context.Context, ref string) bool {
+	_, err := r.execGit(ctx, "rev-parse", "--verify", ref+"^{commit}")
+	return err == nil
+}
