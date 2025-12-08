@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/jm/hnk/internal/ai"
+	"github.com/jm/hnk/internal/cache"
 	"github.com/jm/hnk/internal/config"
 	"github.com/jm/hnk/internal/diff"
 	"github.com/jm/hnk/internal/git"
@@ -115,6 +116,9 @@ func run(ctx context.Context, cmd *cli.Command, cfg *config.Config) error {
 	case fromRef != "" && toRef != "":
 		diffText, err = repo.GetDiffBetweenRefs(ctx, fromRef, toRef, paths...)
 	case ref != "":
+		if !repo.IsValidRef(ctx, ref) {
+			return fmt.Errorf("invalid ref: %s", ref)
+		}
 		diffText, err = repo.GetDiffAgainstRef(ctx, ref, paths...)
 	default:
 		diffText, err = repo.GetDiff(ctx, cmd.Bool("staged"), paths...)
@@ -140,7 +144,8 @@ func run(ctx context.Context, cmd *cli.Command, cfg *config.Config) error {
 	}
 
 	claudeAI := ai.NewClaudeCLI(cmd.String("model"))
-	grp := grouper.New(claudeAI)
+	c := cache.New(cfg.CacheSizeBytes())
+	grp := grouper.New(claudeAI, c)
 
 	groups, err := grp.GroupDiff(ctx, parsed)
 	if err != nil {

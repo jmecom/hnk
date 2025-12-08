@@ -2,11 +2,13 @@ package grouper
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 
 	"github.com/jm/hnk/internal/ai"
+	"github.com/jm/hnk/internal/cache"
 	"github.com/jm/hnk/internal/diff"
 	"github.com/jm/hnk/internal/spinner"
 )
@@ -24,11 +26,12 @@ type SemanticGroup struct {
 
 type Grouper struct {
 	ai         *ai.ClaudeCLI
+	cache      *cache.Cache
 	spinnerOut io.Writer
 }
 
-func New(ai *ai.ClaudeCLI) *Grouper {
-	return &Grouper{ai: ai, spinnerOut: os.Stderr}
+func New(ai *ai.ClaudeCLI, c *cache.Cache) *Grouper {
+	return &Grouper{ai: ai, cache: c, spinnerOut: os.Stderr}
 }
 
 func (g *Grouper) SetSpinnerOutput(w io.Writer) {
@@ -52,15 +55,33 @@ func (g *Grouper) GroupDiff(ctx context.Context, d *diff.Diff) ([]SemanticGroup,
 		return g.singleHunkGroup(ctx, d)
 	}
 
+	rawDiff := d.RawString()
+	cacheKey := cache.HashKey(rawDiff)
+
+	if g.cache != nil {
+		if cached, ok := g.cache.Get(cacheKey); ok {
+			var analysis ai.SemanticAnalysis
+			if err := json.Unmarshal([]byte(cached), &analysis); err == nil {
+				return g.buildGroups(d, &analysis), nil
+			}
+		}
+	}
+
 	catalog := g.buildCatalog(d)
 
 	spin := spinner.New(g.spinnerOut, "Analyzing changes...")
 	spin.Start()
-	analysis, err := g.ai.AnalyzeDiff(ctx, catalog, d.RawString())
+	analysis, err := g.ai.AnalyzeDiff(ctx, catalog, rawDiff)
 	spin.Stop()
 
 	if err != nil {
 		return g.fallbackGrouping(d), nil
+	}
+
+	if g.cache != nil {
+		if data, err := json.Marshal(analysis); err == nil {
+			g.cache.Set(cacheKey, string(data))
+		}
 	}
 
 	return g.buildGroups(d, analysis), nil
