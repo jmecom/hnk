@@ -31,8 +31,8 @@ type theme struct {
 }
 
 var darkTheme = theme{
-	added:       "\033[48;5;22m\033[32m",
-	removed:     "\033[48;5;52m\033[31m",
+	added:       "\033[48;5;22m",
+	removed:     "\033[48;5;52m",
 	title:       "\033[1m\033[36m",
 	desc:        "\033[2m",
 	file:        "\033[1m\033[34m",
@@ -41,8 +41,8 @@ var darkTheme = theme{
 }
 
 var lightTheme = theme{
-	added:       "\033[48;5;157m\033[30m",
-	removed:     "\033[48;5;224m\033[30m",
+	added:       "\033[48;5;194m",
+	removed:     "\033[48;5;224m",
 	title:       "\033[1m\033[34m",
 	desc:        "\033[90m",
 	file:        "\033[1m\033[35m",
@@ -206,18 +206,20 @@ func (r *Renderer) renderLine(language string, line *diff.Line) {
 	case diff.LineAdded:
 		prefix = "+"
 		if r.useColor {
+			highlighted := r.highlightWithBg(language, line.Content, r.theme.added)
 			fmt.Fprintf(r.out, "%s%s%s%s%s%s%s\n",
 				r.theme.lineNum, lineNumStr, colorReset,
-				r.theme.added, prefix, line.Content, colorReset)
+				r.theme.added, prefix, highlighted, colorReset)
 		} else {
 			fmt.Fprintf(r.out, "%s%s%s\n", lineNumStr, prefix, line.Content)
 		}
 	case diff.LineRemoved:
 		prefix = "-"
 		if r.useColor {
+			highlighted := r.highlightWithBg(language, line.Content, r.theme.removed)
 			fmt.Fprintf(r.out, "%s%s%s%s%s%s%s\n",
 				r.theme.lineNum, lineNumStr, colorReset,
-				r.theme.removed, prefix, line.Content, colorReset)
+				r.theme.removed, prefix, highlighted, colorReset)
 		} else {
 			fmt.Fprintf(r.out, "%s%s%s\n", lineNumStr, prefix, line.Content)
 		}
@@ -232,6 +234,16 @@ func (r *Renderer) renderLine(language string, line *diff.Line) {
 			fmt.Fprintf(r.out, "%s%s%s\n", lineNumStr, prefix, line.Content)
 		}
 	}
+}
+
+func (r *Renderer) highlightWithBg(language, content, bg string) string {
+	if !r.useColor || content == "" {
+		return content
+	}
+
+	highlighted := r.highlightContent(language, content)
+	highlighted = strings.ReplaceAll(highlighted, colorReset, colorReset+bg)
+	return highlighted
 }
 
 func (r *Renderer) highlightContent(language, content string) string {
