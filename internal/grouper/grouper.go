@@ -52,9 +52,11 @@ func (g *Grouper) GroupDiff(ctx context.Context, d *diff.Diff) ([]SemanticGroup,
 		return g.singleHunkGroup(ctx, d)
 	}
 
+	catalog := g.buildCatalog(d)
+
 	spin := spinner.New(g.spinnerOut, "Analyzing changes...")
 	spin.Start()
-	analysis, err := g.ai.AnalyzeDiff(ctx, d.RawString())
+	analysis, err := g.ai.AnalyzeDiff(ctx, catalog, d.RawString())
 	spin.Stop()
 
 	if err != nil {
@@ -62,6 +64,29 @@ func (g *Grouper) GroupDiff(ctx context.Context, d *diff.Diff) ([]SemanticGroup,
 	}
 
 	return g.buildGroups(d, analysis), nil
+}
+
+func (g *Grouper) buildCatalog(d *diff.Diff) *ai.DiffCatalog {
+	var files []ai.FileInfo
+	for _, f := range d.Files {
+		fi := ai.FileInfo{
+			Path:      f.NewPath,
+			IsNew:     f.IsNew,
+			IsDeleted: f.IsDeleted,
+		}
+		for _, h := range f.Hunks {
+			adds, removes := h.Stats()
+			fi.Hunks = append(fi.Hunks, ai.HunkInfo{
+				Start:   h.NewStart,
+				Count:   h.NewCount,
+				Header:  h.Header,
+				Adds:    adds,
+				Removes: removes,
+			})
+		}
+		files = append(files, fi)
+	}
+	return ai.BuildCatalog(files)
 }
 
 func (g *Grouper) singleHunkGroup(ctx context.Context, d *diff.Diff) ([]SemanticGroup, error) {
@@ -137,14 +162,10 @@ func (g *Grouper) buildGroups(d *diff.Diff, analysis *ai.SemanticAnalysis) []Sem
 			}
 			file := &d.Files[fileIdx]
 
-			var hunkIndices []int
-			if i < len(ag.HunkIndices) {
-				hunkIndices = ag.HunkIndices[i]
-			} else {
-				for j := range file.Hunks {
-					hunkIndices = append(hunkIndices, j)
-				}
+			if i >= len(ag.HunkIndices) || len(ag.HunkIndices[i]) == 0 {
+				continue
 			}
+			hunkIndices := ag.HunkIndices[i]
 
 			for _, hunkIdx := range hunkIndices {
 				if hunkIdx < 0 || hunkIdx >= len(file.Hunks) {
@@ -167,19 +188,27 @@ func (g *Grouper) buildGroups(d *diff.Diff, analysis *ai.SemanticAnalysis) []Sem
 		}
 	}
 
+	var leftoverHunks []GroupedHunk
 	for fileIdx, file := range d.Files {
 		for hunkIdx := range file.Hunks {
 			key := fmt.Sprintf("%d-%d", fileIdx, hunkIdx)
 			if usedHunks[key] {
 				continue
 			}
-			usedHunks[key] = true
 			f := &d.Files[fileIdx]
 			h := &f.Hunks[hunkIdx]
+			leftoverHunks = append(leftoverHunks, GroupedHunk{File: f, Hunk: h})
+		}
+	}
+
+	if len(leftoverHunks) > 0 {
+		if len(groups) > 0 {
+			groups[len(groups)-1].Hunks = append(groups[len(groups)-1].Hunks, leftoverHunks...)
+		} else {
 			groups = append(groups, SemanticGroup{
-				Title:       generateTitle(f, h),
-				Description: fmt.Sprintf("Additional changes to %s", f.NewPath),
-				Hunks:       []GroupedHunk{{File: f, Hunk: h}},
+				Title:       generateTitle(leftoverHunks[0].File, leftoverHunks[0].Hunk),
+				Description: "Additional changes",
+				Hunks:       leftoverHunks,
 			})
 		}
 	}

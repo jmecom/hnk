@@ -36,8 +36,8 @@ func NewClaudeCLI(model string) *ClaudeCLI {
 	}
 }
 
-func (c *ClaudeCLI) AnalyzeDiff(ctx context.Context, diffText string) (*SemanticAnalysis, error) {
-	prompt := buildAnalysisPrompt(diffText)
+func (c *ClaudeCLI) AnalyzeDiff(ctx context.Context, catalog *DiffCatalog, rawDiff string) (*SemanticAnalysis, error) {
+	prompt := buildAnalysisPrompt(catalog, rawDiff)
 
 	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
@@ -57,39 +57,125 @@ func (c *ClaudeCLI) AnalyzeDiff(ctx context.Context, diffText string) (*Semantic
 	return parseAnalysisResponse(response)
 }
 
-func buildAnalysisPrompt(diffText string) string {
-	return fmt.Sprintf(`Analyze this git diff and group related changes semantically. Return ONLY valid JSON with no additional text.
+type DiffCatalog struct {
+	Files      []FileCatalog
+	TotalHunks int
+}
 
-For each logical group of changes:
-1. Provide a short title (like a commit message subject line)
-2. Write a brief description explaining what the changes accomplish
-3. List which files and hunks belong to this group
+type FileCatalog struct {
+	Index    int
+	Path     string
+	IsNew    bool
+	IsDelete bool
+	Hunks    []HunkCatalog
+}
 
-The JSON format must be:
+type HunkCatalog struct {
+	Index   int
+	Start   int
+	End     int
+	Header  string
+	Adds    int
+	Removes int
+}
+
+func buildAnalysisPrompt(catalog *DiffCatalog, rawDiff string) string {
+	var sb strings.Builder
+
+	sb.WriteString("# Diff Catalog\n\n")
+	for _, f := range catalog.Files {
+		status := ""
+		if f.IsNew {
+			status = " (new file)"
+		} else if f.IsDelete {
+			status = " (deleted)"
+		}
+		sb.WriteString(fmt.Sprintf("File[%d]: %s%s\n", f.Index, f.Path, status))
+		for _, h := range f.Hunks {
+			header := ""
+			if h.Header != "" {
+				header = fmt.Sprintf(" // %s", h.Header)
+			}
+			sb.WriteString(fmt.Sprintf("  Hunk[%d]: lines %d-%d (+%d/-%d)%s\n",
+				h.Index, h.Start, h.End, h.Adds, h.Removes, header))
+		}
+	}
+
+	maxGroups := min(len(catalog.Files)+1, 4)
+
+	return fmt.Sprintf(`%s
+# Diff Content
+
+%s
+
+# Instructions
+
+Group these hunks into logical changes. Return ONLY valid JSON.
+
+RULES:
+- Create AT MOST %d groups (fewer is better, 1-2 is ideal)
+- Hunks from the same file should be in the same group unless they do completely different things
+- Each hunk must appear in EXACTLY ONE group (no duplicates)
+- You MUST specify explicit hunk_indices for every file - never omit them
+- Title should be imperative mood, <60 chars
+
+JSON format:
 {
   "groups": [
     {
-      "title": "Short descriptive title",
-      "description": "Brief explanation of what these changes do and why",
+      "title": "Add user authentication",
+      "description": "One sentence explaining what and why",
       "file_indices": [0, 1],
       "hunk_indices": [[0, 1], [0]]
     }
   ]
 }
 
-file_indices is a list of 0-based file indices.
-hunk_indices is a list of lists - for each file in file_indices, which hunks (0-based) belong to this group.
+file_indices: which files (by index)
+hunk_indices: REQUIRED - for each file in file_indices, list its hunk indices
 
-Group changes that:
-- Implement a single feature or fix
-- Refactor related code together
-- Update configuration or dependencies together
-- Modify tests for the same functionality
+Return ONLY JSON, no markdown fences.`, sb.String(), rawDiff, maxGroups)
+}
 
-DIFF:
-%s
+func BuildCatalog(files []FileInfo) *DiffCatalog {
+	catalog := &DiffCatalog{}
+	for i, f := range files {
+		fc := FileCatalog{
+			Index:    i,
+			Path:     f.Path,
+			IsNew:    f.IsNew,
+			IsDelete: f.IsDeleted,
+		}
+		for j, h := range f.Hunks {
+			hc := HunkCatalog{
+				Index:   j,
+				Start:   h.Start,
+				End:     h.Start + h.Count,
+				Header:  h.Header,
+				Adds:    h.Adds,
+				Removes: h.Removes,
+			}
+			fc.Hunks = append(fc.Hunks, hc)
+			catalog.TotalHunks++
+		}
+		catalog.Files = append(catalog.Files, fc)
+	}
+	return catalog
+}
 
-Return ONLY the JSON, no markdown fences, no explanation.`, diffText)
+type FileInfo struct {
+	Path      string
+	IsNew     bool
+	IsDeleted bool
+	Hunks     []HunkInfo
+}
+
+type HunkInfo struct {
+	Start   int
+	Count   int
+	Header  string
+	Adds    int
+	Removes int
 }
 
 func parseAnalysisResponse(response string) (*SemanticAnalysis, error) {

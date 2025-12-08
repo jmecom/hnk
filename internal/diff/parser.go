@@ -32,6 +32,18 @@ type Hunk struct {
 	Header   string
 }
 
+func (h *Hunk) Stats() (adds, removes int) {
+	for _, l := range h.Lines {
+		switch l.Type {
+		case LineAdded:
+			adds++
+		case LineRemoved:
+			removes++
+		}
+	}
+	return
+}
+
 type FileDiff struct {
 	OldPath   string
 	NewPath   string
