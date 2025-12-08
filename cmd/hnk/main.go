@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/jm/hnk/internal/ai"
+	"github.com/jm/hnk/internal/config"
 	"github.com/jm/hnk/internal/diff"
 	"github.com/jm/hnk/internal/git"
 	"github.com/jm/hnk/internal/grouper"
@@ -14,6 +15,8 @@ import (
 )
 
 func main() {
+	cfg := config.Load()
+
 	app := &cli.Command{
 		Name:      "hnk",
 		Usage:     "Semantic git diff viewer - groups related hunks with explanations",
@@ -41,11 +44,20 @@ func main() {
 				Name:    "model",
 				Aliases: []string{"m"},
 				Usage:   "Claude model to use (haiku, sonnet, opus)",
-				Value:   "sonnet",
+				Value:   cfg.Model,
 			},
 			&cli.BoolFlag{
 				Name:  "no-color",
 				Usage: "Disable colored output",
+			},
+			&cli.BoolFlag{
+				Name:    "light",
+				Aliases: []string{"l"},
+				Usage:   "Force light mode colors",
+			},
+			&cli.BoolFlag{
+				Name:  "dark",
+				Usage: "Force dark mode colors",
 			},
 			&cli.BoolFlag{
 				Name:  "no-line-numbers",
@@ -56,12 +68,13 @@ func main() {
 				Usage: "Output raw grouped diff without styling",
 			},
 			&cli.StringFlag{
-				Name:    "style",
-				Usage:   "Syntax highlighting style (monokai, dracula, github, etc.)",
-				Value:   "monokai",
+				Name:  "style",
+				Usage: "Syntax highlighting style (monokai, dracula, github, etc.)",
 			},
 		},
-		Action: run,
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			return run(ctx, cmd, cfg)
+		},
 	}
 
 	if err := app.Run(context.Background(), os.Args); err != nil {
@@ -70,7 +83,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, cmd *cli.Command) error {
+func run(ctx context.Context, cmd *cli.Command, cfg *config.Config) error {
 	repo := git.NewRepository("")
 	if !repo.IsRepo() {
 		return fmt.Errorf("not a git repository")
@@ -134,15 +147,49 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("failed to group changes: %w", err)
 	}
 
+	lightMode := resolveTheme(cfg.Theme, cmd.Bool("light"), cmd.Bool("dark"))
+
+	lineNums := true
+	if cfg.LineNumbers != nil {
+		lineNums = *cfg.LineNumbers
+	}
+	if cmd.Bool("no-line-numbers") {
+		lineNums = false
+	}
+
+	style := cfg.Style
+	if cmd.String("style") != "" {
+		style = cmd.String("style")
+	}
+
 	r := render.New(
 		os.Stdout,
 		render.WithColor(!cmd.Bool("no-color")),
-		render.WithLineNumbers(!cmd.Bool("no-line-numbers")),
-		render.WithStyle(cmd.String("style")),
+		render.WithLight(lightMode),
+		render.WithLineNumbers(lineNums),
+		render.WithStyle(style),
 	)
 
 	if cmd.Bool("raw") {
 		return r.RenderRaw(groups)
 	}
 	return r.RenderGroups(groups)
+}
+
+func resolveTheme(cfgTheme string, forceLight, forceDark bool) bool {
+	if forceLight {
+		return true
+	}
+	if forceDark {
+		return false
+	}
+
+	switch cfgTheme {
+	case "light":
+		return true
+	case "dark":
+		return false
+	default:
+		return render.DetectLightMode()
+	}
 }

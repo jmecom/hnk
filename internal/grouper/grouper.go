@@ -3,9 +3,12 @@ package grouper
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/jm/hnk/internal/ai"
 	"github.com/jm/hnk/internal/diff"
+	"github.com/jm/hnk/internal/spinner"
 )
 
 type GroupedHunk struct {
@@ -20,11 +23,16 @@ type SemanticGroup struct {
 }
 
 type Grouper struct {
-	ai *ai.ClaudeCLI
+	ai         *ai.ClaudeCLI
+	spinnerOut io.Writer
 }
 
 func New(ai *ai.ClaudeCLI) *Grouper {
-	return &Grouper{ai: ai}
+	return &Grouper{ai: ai, spinnerOut: os.Stderr}
+}
+
+func (g *Grouper) SetSpinnerOutput(w io.Writer) {
+	g.spinnerOut = w
 }
 
 func (g *Grouper) GroupDiff(ctx context.Context, d *diff.Diff) ([]SemanticGroup, error) {
@@ -44,7 +52,11 @@ func (g *Grouper) GroupDiff(ctx context.Context, d *diff.Diff) ([]SemanticGroup,
 		return g.singleHunkGroup(ctx, d)
 	}
 
+	spin := spinner.New(g.spinnerOut, "Analyzing changes...")
+	spin.Start()
 	analysis, err := g.ai.AnalyzeDiff(ctx, d.RawString())
+	spin.Stop()
+
 	if err != nil {
 		return g.fallbackGrouping(d), nil
 	}
@@ -56,7 +68,11 @@ func (g *Grouper) singleHunkGroup(ctx context.Context, d *diff.Diff) ([]Semantic
 	file := d.Files[0]
 	hunk := file.Hunks[0]
 
+	spin := spinner.New(g.spinnerOut, "Analyzing changes...")
+	spin.Start()
 	desc, err := g.ai.GenerateDescription(ctx, d.RawString())
+	spin.Stop()
+
 	if err != nil {
 		desc = fmt.Sprintf("Changes to %s", file.NewPath)
 	}

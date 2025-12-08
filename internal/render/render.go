@@ -14,27 +14,49 @@ import (
 )
 
 const (
-	colorReset     = "\033[0m"
-	colorBold      = "\033[1m"
-	colorDim       = "\033[2m"
-	colorRed       = "\033[31m"
-	colorGreen     = "\033[32m"
-	colorYellow    = "\033[33m"
-	colorBlue      = "\033[34m"
-	colorMagenta   = "\033[35m"
-	colorCyan      = "\033[36m"
-	colorBgRed     = "\033[41m"
-	colorBgGreen   = "\033[42m"
-	colorRedBg     = "\033[48;5;52m"
-	colorGreenBg   = "\033[48;5;22m"
+	colorReset   = "\033[0m"
+	colorBold    = "\033[1m"
+	colorDim     = "\033[2m"
+	colorMagenta = "\033[35m"
 )
 
+type theme struct {
+	added      string
+	removed    string
+	title      string
+	desc       string
+	file       string
+	lineNum    string
+	chromaStyle string
+}
+
+var darkTheme = theme{
+	added:       "\033[48;5;22m\033[32m",
+	removed:     "\033[48;5;52m\033[31m",
+	title:       "\033[1m\033[36m",
+	desc:        "\033[2m",
+	file:        "\033[1m\033[34m",
+	lineNum:     "\033[2m",
+	chromaStyle: "monokai",
+}
+
+var lightTheme = theme{
+	added:       "\033[48;5;157m\033[30m",
+	removed:     "\033[48;5;224m\033[30m",
+	title:       "\033[1m\033[34m",
+	desc:        "\033[90m",
+	file:        "\033[1m\033[35m",
+	lineNum:     "\033[90m",
+	chromaStyle: "github",
+}
+
 type Renderer struct {
-	out        io.Writer
-	useColor   bool
-	style      *chroma.Style
-	lineNums   bool
+	out         io.Writer
+	useColor    bool
+	style       *chroma.Style
+	lineNums    bool
 	compactMode bool
+	theme       theme
 }
 
 type Option func(*Renderer)
@@ -59,8 +81,20 @@ func WithCompact(enabled bool) Option {
 
 func WithStyle(styleName string) Option {
 	return func(r *Renderer) {
+		if styleName == "" {
+			return
+		}
 		if s := styles.Get(styleName); s != nil {
 			r.style = s
+		}
+	}
+}
+
+func WithLight(enabled bool) Option {
+	return func(r *Renderer) {
+		if enabled {
+			r.theme = lightTheme
+			r.style = styles.Get(lightTheme.chromaStyle)
 		}
 	}
 }
@@ -69,8 +103,9 @@ func New(out io.Writer, opts ...Option) *Renderer {
 	r := &Renderer{
 		out:      out,
 		useColor: true,
-		style:    styles.Get("monokai"),
+		style:    styles.Get(darkTheme.chromaStyle),
 		lineNums: true,
+		theme:    darkTheme,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -103,8 +138,8 @@ func (r *Renderer) renderGroup(group *grouper.SemanticGroup) error {
 
 func (r *Renderer) writeGroupHeader(title, description string) {
 	if r.useColor {
-		fmt.Fprintf(r.out, "\n%s%s%s\n", colorBold+colorCyan, title, colorReset)
-		fmt.Fprintf(r.out, "%s%s%s\n\n", colorDim, description, colorReset)
+		fmt.Fprintf(r.out, "\n%s%s%s\n", r.theme.title, title, colorReset)
+		fmt.Fprintf(r.out, "%s%s%s\n\n", r.theme.desc, description, colorReset)
 	} else {
 		fmt.Fprintf(r.out, "\n%s\n", title)
 		fmt.Fprintf(r.out, "%s\n\n", description)
@@ -125,7 +160,7 @@ func (r *Renderer) writeFileHeader(f *diff.FileDiff) {
 	}
 
 	if r.useColor {
-		fmt.Fprintf(r.out, "%s%s%s\n", colorBold+colorBlue, label, colorReset)
+		fmt.Fprintf(r.out, "%s%s%s\n", r.theme.file, label, colorReset)
 	} else {
 		fmt.Fprintf(r.out, "%s\n", label)
 	}
@@ -167,32 +202,31 @@ func (r *Renderer) renderLine(language string, line *diff.Line) {
 		}
 	}
 
-	highlighted := r.highlightContent(language, line.Content)
-
 	switch line.Type {
 	case diff.LineAdded:
 		prefix = "+"
 		if r.useColor {
-			fmt.Fprintf(r.out, "%s%s%s%s%s%s\n",
-				colorDim, lineNumStr, colorReset,
-				colorGreenBg+colorGreen, prefix+highlighted, colorReset)
+			fmt.Fprintf(r.out, "%s%s%s%s%s%s%s\n",
+				r.theme.lineNum, lineNumStr, colorReset,
+				r.theme.added, prefix, line.Content, colorReset)
 		} else {
 			fmt.Fprintf(r.out, "%s%s%s\n", lineNumStr, prefix, line.Content)
 		}
 	case diff.LineRemoved:
 		prefix = "-"
 		if r.useColor {
-			fmt.Fprintf(r.out, "%s%s%s%s%s%s\n",
-				colorDim, lineNumStr, colorReset,
-				colorRedBg+colorRed, prefix+highlighted, colorReset)
+			fmt.Fprintf(r.out, "%s%s%s%s%s%s%s\n",
+				r.theme.lineNum, lineNumStr, colorReset,
+				r.theme.removed, prefix, line.Content, colorReset)
 		} else {
 			fmt.Fprintf(r.out, "%s%s%s\n", lineNumStr, prefix, line.Content)
 		}
 	case diff.LineContext:
 		prefix = " "
 		if r.useColor {
+			highlighted := r.highlightContent(language, line.Content)
 			fmt.Fprintf(r.out, "%s%s%s%s%s\n",
-				colorDim, lineNumStr, colorReset,
+				r.theme.lineNum, lineNumStr, colorReset,
 				prefix, highlighted)
 		} else {
 			fmt.Fprintf(r.out, "%s%s%s\n", lineNumStr, prefix, line.Content)
@@ -234,7 +268,7 @@ func (r *Renderer) highlightContent(language, content string) string {
 
 func (r *Renderer) writeDivider() {
 	if r.useColor {
-		fmt.Fprintf(r.out, "\n%s%s%s\n", colorDim, strings.Repeat("─", 80), colorReset)
+		fmt.Fprintf(r.out, "\n%s%s%s\n", r.theme.lineNum, strings.Repeat("─", 80), colorReset)
 	} else {
 		fmt.Fprintf(r.out, "\n%s\n", strings.Repeat("-", 80))
 	}
