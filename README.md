@@ -4,6 +4,8 @@
 
 A semantic git diff viewer that groups related changes (hunks) and explains what they do.
 
+![hnk example](example.png)
+
 ## What it does
 
 Instead of showing raw diffs, `hnk` uses Claude to analyze changes and present them as logical groups with explanations.
@@ -47,6 +49,7 @@ hnk --from HEAD~5 --to HEAD   # range
 --no-line-numbers  hide line numbers
 --raw              plain output
 --style            syntax theme (monokai, dracula, github, etc)
+--tui, -i          interactive TUI mode
 ```
 
 ## Config
@@ -70,3 +73,20 @@ Theme can be `auto` (detects macOS appearance), `light`, or `dark`.
 - Syntax highlighting (50+ languages)
 - Auto-detects macOS light/dark mode
 - Line numbers with old/new file positions
+- Interactive TUI mode with keyboard navigation
+
+## TUI Mode
+
+Run with `--tui` or `-i` for an interactive full-screen viewer:
+
+```bash
+hnk --tui
+```
+
+Keybindings:
+- `←`/`→` or `h`/`l` - navigate between groups
+- `↑`/`↓` or `k`/`j` - scroll up/down
+- `Space` / `PgDn` - page down
+- `PgUp` - page up
+- `g` / `G` - jump to top/bottom
+- `q` - quit
