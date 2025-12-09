@@ -12,6 +12,7 @@ import (
 	"github.com/jm/hnk/internal/git"
 	"github.com/jm/hnk/internal/grouper"
 	"github.com/jm/hnk/internal/render"
+	"github.com/jm/hnk/internal/tui"
 	"github.com/urfave/cli/v3"
 )
 
@@ -71,6 +72,11 @@ func main() {
 			&cli.StringFlag{
 				Name:  "style",
 				Usage: "Syntax highlighting style (monokai, dracula, github, etc.)",
+			},
+			&cli.BoolFlag{
+				Name:    "tui",
+				Aliases: []string{"i"},
+				Usage:   "Interactive TUI mode with keyboard navigation",
 			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -174,6 +180,14 @@ func run(ctx context.Context, cmd *cli.Command, cfg *config.Config) error {
 		render.WithLineNumbers(lineNums),
 		render.WithStyle(style),
 	)
+
+	if cmd.Bool("tui") {
+		return tui.Run(groups, tui.Options{
+			LightMode:   lightMode,
+			LineNumbers: lineNums,
+			StyleName:   style,
+		})
+	}
 
 	if cmd.Bool("raw") {
 		return r.RenderRaw(groups)
