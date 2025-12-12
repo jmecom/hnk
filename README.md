@@ -4,7 +4,6 @@
 
 A semantic git diff viewer that groups related changes (hunks) and explains what they do.
 
-![hnk example](example.png)
 
 ## What it does
 
